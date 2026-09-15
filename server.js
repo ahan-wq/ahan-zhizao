@@ -524,10 +524,11 @@ function serveStatic(req, res, pathname, query) {
     }
     const ext = path.extname(filePath).toLowerCase();
     if (isAsset) {
-      // 素材/缩略图：协商缓存（304 不重传，替换素材后 mtime 变化自动失效）
-      const lm = st.mtime.toUTCString();
-      if (req.headers['if-modified-since'] === lm) {
-        res.writeHead(304, { 'Cache-Control': 'public, max-age=0, must-revalidate', 'Last-Modified': lm });
+      // 素材/缩略图：ETag 协商缓存 + 5 分钟强缓存
+      // （5 分钟内刷新零请求；替换素材后强刷即失效，普通刷新最迟 5 分钟生效）
+      const etag = '"' + Math.floor(st.mtimeMs).toString(16) + '-' + st.size.toString(16) + '"';
+      if (req.headers['if-none-match'] === etag) {
+        res.writeHead(304, { 'Cache-Control': 'public, max-age=300', 'ETag': etag });
         res.end();
         return;
       }
@@ -539,8 +540,8 @@ function serveStatic(req, res, pathname, query) {
         }
         res.writeHead(200, {
           'Content-Type': MIME[ext] || 'application/octet-stream',
-          'Cache-Control': 'public, max-age=0, must-revalidate',
-          'Last-Modified': lm
+          'Cache-Control': 'public, max-age=300',
+          'ETag': etag
         });
         res.end(data);
       });
