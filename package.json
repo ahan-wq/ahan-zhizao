@@ -1,0 +1,12 @@
+{
+  "name": "ahan-zhizao",
+  "version": "1.0.5",
+  "description": "阿憨植造 - 实景景观设计 H5",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=16"
+  }
+}
