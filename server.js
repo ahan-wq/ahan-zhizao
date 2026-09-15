@@ -497,7 +497,7 @@ const MIME = {
   '.json': 'application/json; charset=utf-8'
 };
 
-function serveStatic(res, pathname, query) {
+function serveStatic(req, res, pathname, query) {
   // 素材目录鉴权（防直接下载原图/缩略图）：必须携带有效 token
   if (pathname.indexOf('/data/materials/') === 0 || pathname.indexOf('/data/thumbs/') === 0) {
     const tk = (query && query.get('token')) || '';
@@ -515,19 +515,50 @@ function serveStatic(res, pathname, query) {
     res.end('Forbidden');
     return;
   }
-  fs.readFile(filePath, function (err, data) {
+  const isAsset = pathname.indexOf('/data/materials/') === 0 || pathname.indexOf('/data/thumbs/') === 0;
+  fs.stat(filePath, function (err, st) {
     if (err) {
       res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
       res.end('404 Not Found');
       return;
     }
     const ext = path.extname(filePath).toLowerCase();
-    // 强制不缓存：HTML/JS/CSS 每次拉取最新（否则手机浏览器会缓存旧页面导致迭代不生效）
-    res.writeHead(200, {
-      'Content-Type': MIME[ext] || 'application/octet-stream',
-      'Cache-Control': 'no-store'
+    if (isAsset) {
+      // 素材/缩略图：协商缓存（304 不重传，替换素材后 mtime 变化自动失效）
+      const lm = st.mtime.toUTCString();
+      if (req.headers['if-modified-since'] === lm) {
+        res.writeHead(304, { 'Cache-Control': 'public, max-age=0, must-revalidate', 'Last-Modified': lm });
+        res.end();
+        return;
+      }
+      fs.readFile(filePath, function (err2, data) {
+        if (err2) {
+          res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+          res.end('404 Not Found');
+          return;
+        }
+        res.writeHead(200, {
+          'Content-Type': MIME[ext] || 'application/octet-stream',
+          'Cache-Control': 'public, max-age=0, must-revalidate',
+          'Last-Modified': lm
+        });
+        res.end(data);
+      });
+      return;
+    }
+    // 页面/JS/CSS：强制不缓存（保证迭代立即生效）
+    fs.readFile(filePath, function (err2, data) {
+      if (err2) {
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('404 Not Found');
+        return;
+      }
+      res.writeHead(200, {
+        'Content-Type': MIME[ext] || 'application/octet-stream',
+        'Cache-Control': 'no-store'
+      });
+      res.end(data);
     });
-    res.end(data);
   });
 }
 
@@ -664,7 +695,7 @@ const server = http.createServer(function (req, res) {
       });
     }
     // 静态资源
-    if (req.method === 'GET' || req.method === 'HEAD') return serveStatic(res, p, url.searchParams);
+    if (req.method === 'GET' || req.method === 'HEAD') return serveStatic(req, res, p, url.searchParams);
     send(res, 405, { message: 'Method Not Allowed' });
   }
 
